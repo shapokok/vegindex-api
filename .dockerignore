@@ -1,0 +1,14 @@
+# Allowlist: send only what the image needs to the build context.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src/
+!tests/
+
+# Never ship caches or bytecode, even from allowed directories.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
