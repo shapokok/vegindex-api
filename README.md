@@ -118,10 +118,52 @@ docker ps --filter name=vi    # STATUS shows "(healthy)" once the healthcheck pa
 docker rm -f vi
 ```
 
+## Jenkins CI
+
+The declarative [`Jenkinsfile`](Jenkinsfile) polls the repository every 2 minutes and runs:
+
+| Stage | What it does |
+|-------|--------------|
+| Checkout | Clones the commit and records the branch and short SHA |
+| Lint & Unit tests | `docker build --target test` (ruff + pytest); fails the build on any error |
+| Publish test report | Copies `/reports/junit.xml` out of the test image with `docker create` + `docker cp` |
+| Build image | Builds `shapok/vegindex-api` tagged `:<build number>`, `:<short sha>` and `:latest` with `GIT_COMMIT` |
+| Smoke test | Starts the image, waits for `/health`, checks that `/version` reports the built commit |
+| Push to Docker Hub | `main` only: `docker login --password-stdin` with the `dockerhub-creds` credentials, pushes all three tags |
+
+Afterwards the JUnit report is published to Jenkins, `docker logout` runs and temporary
+containers, per-build tags and the workspace are cleaned up.
+
+### Running Jenkins locally
+
+[`jenkins/`](jenkins) contains a controller image (`jenkins/jenkins:lts-jdk17` + Docker CLI
+and buildx + the required plugins) and a Compose file that mounts the host Docker socket:
+
+```sh
+docker compose -f jenkins/docker-compose.yml up -d --build
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+open http://localhost:8080
+```
+
+On Docker Desktop the socket inside containers is `root:root` with mode `660`, so the
+Compose file adds the `jenkins` user to group `0` (`group_add`) instead of running Jenkins
+as root. Builds run on the host daemon, which is why the pipeline copies files out of
+containers instead of using bind mounts.
+
+Then in Jenkins:
+
+1. Add a *Username with password* credential with ID `dockerhub-creds` (Docker Hub
+   username and an access token).
+2. Create a *Pipeline* job → *Pipeline script from SCM* → Git
+   `https://github.com/shapokok/vegindex-api`, branch `*/main`, script path `Jenkinsfile`.
+3. Run it once manually so Jenkins registers the `pollSCM` trigger.
+
 ## Project layout
 
 ```
 Dockerfile     # multi-stage image: base → test → runtime
+Jenkinsfile    # CI pipeline
+jenkins/       # local Jenkins controller (Dockerfile + docker-compose.yml)
 src/vegindex/
   indices.py   # NDVI, VARI, ExG formulas and NDVI classification
   schemas.py   # pydantic request/response models
@@ -132,7 +174,7 @@ tests/         # pytest suite (formulas, edge cases, endpoints)
 ## Roadmap
 
 - [x] Containerize with Docker
-- [ ] Jenkins CI pipeline
+- [x] Jenkins CI pipeline
 - [ ] Deploy to Minikube
 
 ## License
